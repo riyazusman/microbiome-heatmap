@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import io
 
 def main():
-    st.set_page_config(page_title="Microbiome Heatmap Generator", layout="wide")
+    st.set_page_config(page_title="Correlation Heatmap Generator", layout="wide")
     
     st.title("Microbiome & Metabolite Correlation")
     st.markdown("Upload your raw data CSV to dynamically categorize and analyze Pearson correlations.")
@@ -47,18 +47,18 @@ def main():
             # 2. Dynamic Column Categorization
             st.markdown("### Categorize Columns")
             
-            expected_bacteria = [
+            expected_y = [
                 'Bifidobacterium', 'Lactobacillus', 'Faecalibacterium', 
                 'Enterobacterium', 'Enterococcus', 'Bacteroidetes', 
                 'C leptum', 'C coccoides', 'Prevotella'
             ]
-            expected_metabolites = [
+            expected_x = [
                 'Total SCFA', 'Acetic acid', 'Butyric acid', 
                 'Propionic acid', 'Valeric acid'
             ]
             
-            default_y = [col for col in expected_bacteria if col in available_cols]
-            default_x = [col for col in expected_metabolites if col in available_cols]
+            default_y = [col for col in expected_y if col in available_cols]
+            default_x = [col for col in expected_x if col in available_cols]
             
             col1, col2 = st.columns(2)
             with col1:
