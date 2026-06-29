@@ -7,7 +7,7 @@ import io
 def main():
     st.set_page_config(page_title="Correlation Heatmap Generator", layout="wide")
     
-    st.title("Microbiome & Metabolite Correlation")
+    st.title("Correlation Heatmap Generator")
     st.markdown("Upload your raw data CSV to dynamically categorize and analyze Pearson correlations.")
 
     # Sidebar Controls
