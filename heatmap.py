@@ -24,7 +24,6 @@ def main():
     fig_width = st.sidebar.slider("Figure Width", min_value=6, max_value=24, value=12)
     fig_height = st.sidebar.slider("Figure Height", min_value=6, max_value=24, value=10)
     
-    # NEW: Toggle for numerical annotations
     show_values = st.sidebar.toggle("Show Values inside Heatmap", value=True)
     
     annot_font_size = st.sidebar.slider("Annotation Font Size", min_value=4, max_value=16, value=9)
@@ -34,7 +33,7 @@ def main():
 
     if uploaded_file is not None:
         try:
-            # 1. Data Ingestion
+            # Data Ingestion
             df = pd.read_csv(uploaded_file)
             df.set_index(df.columns[0], inplace=True)
             
@@ -44,7 +43,7 @@ def main():
             
             available_cols = df_numeric.columns.tolist()
             
-            # 2. Dynamic Column Categorization
+            # Dynamic Column Categorization
             st.markdown("### Categorize Columns")
             
             expected_y = [
@@ -78,10 +77,10 @@ def main():
             
             st.markdown("---")
             
-            # 3. Mathematical Processing
+            # Mathematical Processing
             corr_matrix = df_numeric.corr(method='pearson')
             
-            # 4. Tabbed Interface
+            # Tabbed Interface
             tab1, tab2 = st.tabs(["Targeted Correlation", "Full Correlation Matrix"])
             
             with tab1:
@@ -101,7 +100,7 @@ def main():
                     sns.heatmap(
                         sub_corr, 
                         cmap=cmap_selection, 
-                        annot=show_values, # UPDATED: Tied to toggle
+                        annot=show_values,
                         fmt=".2f", 
                         linewidths=.5, 
                         cbar_kws={"shrink": .8}, 
@@ -131,7 +130,7 @@ def main():
                 sns.heatmap(
                     full_corr_display, 
                     cmap=cmap_selection, 
-                    annot=show_values, # UPDATED: Tied to toggle
+                    annot=show_values,
                     fmt=".2f", 
                     linewidths=.5, 
                     cbar_kws={"shrink": .8}, 
