@@ -12,6 +12,9 @@ def main():
 
     # Sidebar Controls
     st.sidebar.header("Visualization Controls")
+    
+    custom_title = st.sidebar.text_input("Heatmap Title", value="Pearson Correlation Heatmap")
+    
     cmap_selection = st.sidebar.selectbox(
         "Color Palette", 
         options=["vlag", "coolwarm", "Spectral", "icefire", "RdYlBu_r"],
@@ -20,6 +23,10 @@ def main():
     
     fig_width = st.sidebar.slider("Figure Width", min_value=6, max_value=24, value=12)
     fig_height = st.sidebar.slider("Figure Height", min_value=6, max_value=24, value=10)
+    
+    # NEW: Toggle for numerical annotations
+    show_values = st.sidebar.toggle("Show Values inside Heatmap", value=True)
+    
     annot_font_size = st.sidebar.slider("Annotation Font Size", min_value=4, max_value=16, value=9)
 
     # Main Area
@@ -40,7 +47,6 @@ def main():
             # 2. Dynamic Column Categorization
             st.markdown("### Categorize Columns")
             
-            # Pre-defined lists for auto-population (if they exist in the file)
             expected_bacteria = [
                 'Bifidobacterium', 'Lactobacillus', 'Faecalibacterium', 
                 'Enterobacterium', 'Enterococcus', 'Bacteroidetes', 
@@ -51,22 +57,24 @@ def main():
                 'Propionic acid', 'Valeric acid'
             ]
             
-            default_group1 = [col for col in expected_bacteria if col in available_cols]
-            default_group2 = [col for col in expected_metabolites if col in available_cols]
+            default_y = [col for col in expected_bacteria if col in available_cols]
+            default_x = [col for col in expected_metabolites if col in available_cols]
             
             col1, col2 = st.columns(2)
             with col1:
-                group1_cols = st.multiselect(
-                    "Group 1 (e.g., Bacteria - Rows)", 
+                y_axis_cols = st.multiselect(
+                    "Y-Axis (Rows)", 
                     options=available_cols, 
-                    default=default_group1
+                    default=default_y
                 )
             with col2:
-                group2_cols = st.multiselect(
-                    "Group 2 (e.g., Metabolites - Columns)", 
+                x_axis_cols = st.multiselect(
+                    "X-Axis (Columns)", 
                     options=available_cols, 
-                    default=default_group2
+                    default=default_x
                 )
+            
+            swap_axes = st.toggle("🔄 Swap X and Y Axes")
             
             st.markdown("---")
             
@@ -74,19 +82,30 @@ def main():
             corr_matrix = df_numeric.corr(method='pearson')
             
             # 4. Tabbed Interface
-            tab1, tab2 = st.tabs(["Targeted Correlation (Group 1 vs Group 2)", "Full Correlation Matrix"])
+            tab1, tab2 = st.tabs(["Targeted Correlation", "Full Correlation Matrix"])
             
             with tab1:
-                if not group1_cols or not group2_cols:
-                    st.warning("Please select at least one column for both Group 1 and Group 2 to generate this heatmap.")
+                if not y_axis_cols or not x_axis_cols:
+                    st.warning("Please select at least one column for both the X and Y axes.")
                 else:
                     st.subheader("Targeted Heatmap")
-                    sub_corr = corr_matrix.loc[group1_cols, group2_cols]
+                    
+                    if swap_axes:
+                        sub_corr = corr_matrix.loc[x_axis_cols, y_axis_cols]
+                    else:
+                        sub_corr = corr_matrix.loc[y_axis_cols, x_axis_cols]
                     
                     fig1, ax1 = plt.subplots(figsize=(fig_width, fig_height))
+                    ax1.set_title(custom_title, pad=20, fontsize=16)
+                    
                     sns.heatmap(
-                        sub_corr, cmap=cmap_selection, annot=True, fmt=".2f", 
-                        linewidths=.5, cbar_kws={"shrink": .8}, ax=ax1, 
+                        sub_corr, 
+                        cmap=cmap_selection, 
+                        annot=show_values, # UPDATED: Tied to toggle
+                        fmt=".2f", 
+                        linewidths=.5, 
+                        cbar_kws={"shrink": .8}, 
+                        ax=ax1, 
                         annot_kws={"size": annot_font_size}
                     )
                     plt.xticks(rotation=45, ha='right')
@@ -103,10 +122,20 @@ def main():
             
             with tab2:
                 st.subheader("Full Matrix Heatmap")
+                
+                full_corr_display = corr_matrix.T if swap_axes else corr_matrix
+                
                 fig2, ax2 = plt.subplots(figsize=(fig_width, fig_height))
+                ax2.set_title(custom_title, pad=20, fontsize=16)
+                
                 sns.heatmap(
-                    corr_matrix, cmap=cmap_selection, annot=True, fmt=".2f", 
-                    linewidths=.5, cbar_kws={"shrink": .8}, ax=ax2, 
+                    full_corr_display, 
+                    cmap=cmap_selection, 
+                    annot=show_values, # UPDATED: Tied to toggle
+                    fmt=".2f", 
+                    linewidths=.5, 
+                    cbar_kws={"shrink": .8}, 
+                    ax=ax2, 
                     annot_kws={"size": annot_font_size}
                 )
                 plt.xticks(rotation=45, ha='right')
@@ -119,7 +148,7 @@ def main():
                 
                 c3, c4 = st.columns(2)
                 c3.download_button("Download Full Heatmap (PNG)", data=img_buffer2.getvalue(), file_name="full_heatmap.png", mime="image/png")
-                c4.download_button("Download Full Matrix Data (CSV)", data=corr_matrix.to_csv().encode('utf-8'), file_name="full_correlations.csv", mime="text/csv")
+                c4.download_button("Download Full Matrix Data (CSV)", data=full_corr_display.to_csv().encode('utf-8'), file_name="full_correlations.csv", mime="text/csv")
 
         except Exception as e:
             st.error(f"An error occurred while processing the file: {e}")
