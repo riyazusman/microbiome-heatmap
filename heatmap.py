@@ -28,7 +28,7 @@ def main():
     if uploaded_file is not None:
         try:
             # 1. Data Ingestion
-            df = pd.read_csv(uploaded_file, header=1)
+            df = pd.read_csv(uploaded_file)
             
             # Set the first column as index (Sample IDs)
             df.set_index(df.columns[0], inplace=True)
