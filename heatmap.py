@@ -98,7 +98,9 @@ def main():
                     ax1.set_title(custom_title, pad=20, fontsize=16)
                     
                     sns.heatmap(
-                        sub_corr, 
+                        sub_corr,
+                        vmin=-1.0,
+                        vmax=1.0,
                         cmap=cmap_selection, 
                         annot=show_values,
                         fmt=".2f", 
@@ -128,7 +130,9 @@ def main():
                 ax2.set_title(custom_title, pad=20, fontsize=16)
                 
                 sns.heatmap(
-                    full_corr_display, 
+                    full_corr_display,
+                    vmin=-1.0,
+                    vmax=1.0,
                     cmap=cmap_selection, 
                     annot=show_values,
                     fmt=".2f", 
