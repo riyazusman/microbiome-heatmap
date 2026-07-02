@@ -8,12 +8,39 @@ def main():
     st.set_page_config(page_title="Correlation Heatmap Generator", layout="wide")
     
     st.title("Correlation Heatmap Generator")
-    st.markdown("Upload your raw data CSV to dynamically categorize and analyze Pearson correlations.")
+    st.markdown("Upload your raw data CSV to dynamically categorize and analyze correlations.")
 
     # Sidebar Controls
     st.sidebar.header("Visualization Controls")
     
-    custom_title = st.sidebar.text_input("Heatmap Title", value="Pearson Correlation Heatmap")
+    # Correlation Method Selector
+    corr_method = st.sidebar.selectbox(
+        "Correlation Method",
+        options=["pearson", "spearman", "kendall"],
+        format_func=lambda x: x.capitalize(),
+        index=0
+    )
+
+    replicate_handling = st.sidebar.selectbox(
+        "Replicate Handling",
+        options=["None", "Median", "Mean"],
+        index=0
+    )
+
+    if replicate_handling == "Mean":
+        outlier_filter_checkbox =st.sidebar.checkbox("Enable Outlier Filtering", value=True)
+        if outlier_filter_checkbox:
+            outlier_filter = st.sidebar.slider(
+                "Outlier Filter Threshold (Coefficient of Variation %)", 
+                min_value=0, 
+                max_value=100, 
+                value=15, 
+                step=1
+            )
+    
+    custom_title = st.sidebar.text_input("Heatmap Title", value="Correlation Heatmap")
+    y_axis_label = st.sidebar.text_input("Y-Axis Label", value="Bacteria")
+    x_axis_label = st.sidebar.text_input("X-Axis Label", value="Metabolites")
     
     cmap_selection = st.sidebar.selectbox(
         "Color Palette", 
@@ -33,7 +60,7 @@ def main():
 
     if uploaded_file is not None:
         try:
-            # Data Ingestion
+            # 1. Data Ingestion
             df = pd.read_csv(uploaded_file)
             df.set_index(df.columns[0], inplace=True)
             
@@ -41,9 +68,49 @@ def main():
             df_numeric = df.apply(pd.to_numeric, errors='coerce')
             df_numeric.dropna(axis=1, how='all', inplace=True)
             
+            if replicate_handling == "Median":
+                df_numeric = df_numeric.groupby(level=0).median()
+                
+            elif replicate_handling == "Mean" and outlier_filter_checkbox:
+                outlier_logs = []
+                processed_frames = []
+                
+                for sample_name, group in df_numeric.groupby(level=0):
+                    if len(group) >= 3:
+                        sample_res = {}
+                        for col in group.columns:
+                            vals = group[col].dropna()
+                            if len(vals) >= 3:
+                                cv = vals.std(ddof=1) / vals.mean() if vals.mean() != 0 else 0
+                                if abs(cv) > (outlier_filter / 100):
+                                    vals_reset = vals.reset_index(drop=True)
+                                    med = vals_reset.median()
+                                    outlier_idx = (vals_reset - med).abs().idxmax()
+                                    vals_cleaned = vals_reset.drop(outlier_idx)
+                                    
+                                    sample_res[col] = vals_cleaned.mean()
+                                    outlier_logs.append(f"**{sample_name}** - {col} (CV: {abs(cv)*100:.1f}%)")
+                                else:
+                                    sample_res[col] = vals.mean()
+                            else:
+                                sample_res[col] = vals.mean()
+                        processed_frames.append(pd.DataFrame([sample_res], index=[sample_name]))
+                    else:
+                        processed_frames.append(pd.DataFrame([group.mean()], index=[sample_name]))
+                        
+                df_numeric = pd.concat(processed_frames)
+                
+                if outlier_logs:
+                    with st.expander(f"⚠️ Outliers filtered in {len(outlier_logs)} measurements"):
+                        st.markdown(f"The following technical replicates exceeded a {outlier_filter}% Coefficient of Variation. The outlier was dropped before calculating the mean.")
+                        for log in outlier_logs:
+                            st.markdown(f"- {log}")
+                    
+                        st.table(df_numeric)
+            
             available_cols = df_numeric.columns.tolist()
             
-            # Dynamic Column Categorization
+            # 2. Dynamic Column Categorization
             st.markdown("### Categorize Columns")
             
             expected_y = [
@@ -62,13 +129,13 @@ def main():
             col1, col2 = st.columns(2)
             with col1:
                 y_axis_cols = st.multiselect(
-                    "Y-Axis (Rows)", 
+                    f"Y-Axis (Rows): {y_axis_label}", 
                     options=available_cols, 
                     default=default_y
                 )
             with col2:
                 x_axis_cols = st.multiselect(
-                    "X-Axis (Columns)", 
+                    f"X-Axis (Columns): {x_axis_label}", 
                     options=available_cols, 
                     default=default_x
                 )
@@ -77,17 +144,17 @@ def main():
             
             st.markdown("---")
             
-            # Mathematical Processing
-            corr_matrix = df_numeric.corr(method='pearson')
+            # 3. Mathematical Processing
+            corr_matrix = df_numeric.corr(method=corr_method)
             
-            # Tabbed Interface
+            # 4. Tabbed Interface
             tab1, tab2 = st.tabs(["Targeted Correlation", "Full Correlation Matrix"])
             
             with tab1:
                 if not y_axis_cols or not x_axis_cols:
                     st.warning("Please select at least one column for both the X and Y axes.")
                 else:
-                    st.subheader("Targeted Heatmap")
+                    st.subheader(f"Targeted Heatmap - {corr_method.capitalize()} Correlation")
                     
                     if swap_axes:
                         sub_corr = corr_matrix.loc[x_axis_cols, y_axis_cols]
@@ -98,17 +165,27 @@ def main():
                     ax1.set_title(custom_title, pad=20, fontsize=16)
                     
                     sns.heatmap(
-                        sub_corr,
+                        sub_corr, 
+                        cmap=cmap_selection, 
                         vmin=-1.0,
                         vmax=1.0,
-                        cmap=cmap_selection, 
-                        annot=show_values,
+                        annot=show_values, 
                         fmt=".2f", 
                         linewidths=.5, 
                         cbar_kws={"shrink": .8}, 
                         ax=ax1, 
                         annot_kws={"size": annot_font_size}
                     )
+                    if x_axis_label:
+                        ax1.set_xlabel(x_axis_label, fontsize=12, labelpad=10)
+                    else:
+                        ax1.set_xlabel('')
+
+                    if y_axis_label:
+                        ax1.set_ylabel(y_axis_label, fontsize=12, labelpad=10)
+                    else:
+                        ax1.set_ylabel('')
+                    
                     plt.xticks(rotation=45, ha='right')
                     plt.yticks(rotation=0)
                     st.pyplot(fig1)
@@ -119,10 +196,10 @@ def main():
                     
                     c1, c2 = st.columns(2)
                     c1.download_button("Download Targeted Heatmap (PNG)", data=img_buffer1.getvalue(), file_name="targeted_heatmap.png", mime="image/png")
-                    c2.download_button("Download Targeted Data (CSV)", data=sub_corr.to_csv().encode('utf-8'), file_name="targeted_correlations.csv", mime="text/csv")
+                    c2.download_button(f"Download Targeted Data ({corr_method.capitalize()})", data=sub_corr.to_csv().encode('utf-8'), file_name=f"targeted_correlations_{corr_method}.csv", mime="text/csv")
             
             with tab2:
-                st.subheader("Full Matrix Heatmap")
+                st.subheader(f"Full Matrix Heatmap - {corr_method.capitalize()} Correlation")
                 
                 full_corr_display = corr_matrix.T if swap_axes else corr_matrix
                 
@@ -130,17 +207,28 @@ def main():
                 ax2.set_title(custom_title, pad=20, fontsize=16)
                 
                 sns.heatmap(
-                    full_corr_display,
+                    full_corr_display, 
+                    cmap=cmap_selection, 
                     vmin=-1.0,
                     vmax=1.0,
-                    cmap=cmap_selection, 
-                    annot=show_values,
+                    annot=show_values, 
                     fmt=".2f", 
                     linewidths=.5, 
                     cbar_kws={"shrink": .8}, 
                     ax=ax2, 
                     annot_kws={"size": annot_font_size}
                 )
+
+                if x_axis_label:
+                    ax2.set_xlabel(x_axis_label, fontsize=12, labelpad=10)
+                else:
+                    ax2.set_xlabel('')
+
+                if y_axis_label:
+                    ax2.set_ylabel(y_axis_label, fontsize=12, labelpad=10)
+                else:
+                    ax2.set_ylabel('')
+
                 plt.xticks(rotation=45, ha='right')
                 plt.yticks(rotation=0)
                 st.pyplot(fig2)
@@ -151,7 +239,7 @@ def main():
                 
                 c3, c4 = st.columns(2)
                 c3.download_button("Download Full Heatmap (PNG)", data=img_buffer2.getvalue(), file_name="full_heatmap.png", mime="image/png")
-                c4.download_button("Download Full Matrix Data (CSV)", data=full_corr_display.to_csv().encode('utf-8'), file_name="full_correlations.csv", mime="text/csv")
+                c4.download_button(f"Download Full Matrix Data ({corr_method.capitalize()})", data=full_corr_display.to_csv().encode('utf-8'), file_name=f"full_correlations_{corr_method}.csv", mime="text/csv")
 
         except Exception as e:
             st.error(f"An error occurred while processing the file: {e}")
