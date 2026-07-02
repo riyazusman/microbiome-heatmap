@@ -7,6 +7,7 @@ import scipy.stats as stats
 import io
 
 def calculate_pvalues(df, method='pearson'):
+    """Helper function to calculate a p-value matrix for a dataframe."""
     cols = df.columns
     pvals = pd.DataFrame(index=cols, columns=cols, dtype=float)
     
@@ -16,7 +17,6 @@ def calculate_pvalues(df, method='pearson'):
                 pvals.loc[r, c] = 0.0 
                 continue
                 
-            # Drop NaNs for the specific pair
             mask = df[r].notna() & df[c].notna()
             x, y = df[r][mask], df[c][mask]
             
@@ -45,15 +45,14 @@ def main():
 
     # Sidebar Controls
     st.sidebar.header("Heatmap Controls")
-    
-    # Correlation Method Selector
+
     corr_method = st.sidebar.selectbox(
         "Correlation Method",
         options=["pearson", "spearman", "kendall"],
         format_func=lambda x: x.capitalize(),
         index=0
     )
-
+    
     replicate_handling = st.sidebar.selectbox(
         "Replicate Handling",
         options=["None", "Median", "Mean"],
@@ -63,62 +62,57 @@ def main():
     if replicate_handling == "Mean":
         outlier_filter_checkbox =st.sidebar.checkbox("Enable Outlier Filtering", value=True)
         if outlier_filter_checkbox:
-            outlier_filter = st.sidebar.slider(
-                "Outlier Filter Threshold (Coefficient of Variation %)", 
+            outlier_filter = st.sidebar.number_input(
+                "Coefficient of Variation %", 
                 min_value=0, 
-                max_value=100, 
-                value=15, 
-                step=1
+                max_value=None, 
+                value=15
             )
     
-    mask_option = st.sidebar.selectbox(
-        "Matrix Masking (Full Matrix Only)",
-        options=["None", "Hide Upper Triangle", "Hide Lower Triangle"],
-        index=0
-    )
-    st.sidebar.markdown("---")
-
-    custom_title = st.sidebar.text_input("Heatmap Title", value="Correlation Heatmap")
-    y_axis_label = st.sidebar.text_input("Y-Axis Label", value="Bacteria")
-    x_axis_label = st.sidebar.text_input("X-Axis Label", value="Metabolites")
-    st.sidebar.markdown("---")
-
-    cmap_selection = st.sidebar.selectbox(
-        "Color Palette", 
-        options=["vlag", "coolwarm", "Spectral", "icefire", "RdYlBu_r"],
-        index=0
-    )
+    with st.sidebar.expander("Title & Axis Labels"):
+        custom_title = st.text_input("Heatmap Title", value="Correlation Heatmap")
+        y_axis_label = st.text_input("Y-Axis Label", value="Bacteria")
+        x_axis_label = st.text_input("X-Axis Label", value="Metabolites")
     
-    fig_width = st.sidebar.slider("Figure Width", min_value=6, max_value=24, value=12)
-    fig_height = st.sidebar.slider("Figure Height", min_value=6, max_value=24, value=10)
-    
-    show_values = st.sidebar.toggle("Show Values inside Heatmap", value=True)
+    with st.sidebar.expander("Heatmap Appearance"):    
+        cmap_selection = st.selectbox(
+            "Color Palette", 
+            options=["vlag", "coolwarm", "Spectral", "icefire", "RdYlBu_r"],
+            index=0
+        )
+        
+        fig_width = st.slider("Figure Width", min_value=6, max_value=24, value=12)
+        fig_height = st.slider("Figure Height", min_value=6, max_value=24, value=10)
+        annot_font_size = st.slider("Annotation Font Size", min_value=4, max_value=16, value=9)
+        show_values = st.toggle("Show Values inside Heatmap", value=True)
+        mask_option = st.selectbox(
+            "Matrix Masking for Full Matrix",
+            options=["None", "Hide Upper Triangle", "Hide Lower Triangle"],
+            index=0
+        )    
 
-    st.sidebar.markdown("### Significance Filtering")
-
-    sig_metric = st.sidebar.radio(
-        "Threshold Metric",
-        options=["P-value (α)", "Correlation Coefficient (|r|)"]
-    )
+    with st.sidebar.expander("Significance Filtering"):
+        sig_metric = st.radio(
+            "Threshold Metric",
+            options=["P-value (α)", "Correlation Coefficient (|r|)"]
+        )
     
-    if sig_metric == "Correlation Coefficient (|r|)":
-        sig_threshold = st.sidebar.slider("Threshold (|r| ≥)", min_value=0.0, max_value=1.0, value=0.5, step=0.05)
-    else:
-        st.sidebar.markdown("**P-Value Tiers (α ≤)**")
-        p_star = st.sidebar.number_input("'*' Threshold", value=0.10, step=0.01)
-        p_2star = st.sidebar.number_input("'**' Threshold", value=0.05, step=0.01)
-        p_3star = st.sidebar.number_input("'***' Threshold", value=0.001, step=0.001, format="%.3f")
-        sig_threshold = p_star
-    
-    sig_action = st.sidebar.radio(
-        "Threshold Action", 
-        options=["Highlight Significant (*)", "Mask Insignificant Cells"]
-    )
-
-    annot_font_size = st.sidebar.slider("Annotation Font Size", min_value=4, max_value=16, value=9)
+        if sig_metric == "Correlation Coefficient (|r|)":
+            sig_threshold = st.slider("Threshold (|r| ≥)", min_value=0.0, max_value=1.0, value=0.5, step=0.05)
+        else:
+            st.markdown("**P-Value Tiers (α ≤)**")
+            p_star = st.number_input("* Threshold", value=0.10, step=0.01)
+            p_2star = st.number_input("** Threshold", value=0.05, step=0.01)
+            p_3star = st.number_input("*** Threshold", value=0.001, step=0.001, format="%.3f")
+            sig_threshold = p_star 
+        
+        sig_action = st.radio(
+            "Threshold Action", 
+            options=["Highlight Significant (*)", "Mask Insignificant Cells"]
+        )
 
     # Main Area
-    uploaded_file = st.file_uploader("Upload Raw Data CSV", type=["csv"])
+    uploaded_file = st.file_uploader("Upload Raw Data CSV (Headers in Row 1)", type=["csv"])
 
     if uploaded_file is not None:
         try:
@@ -130,6 +124,7 @@ def main():
             df_numeric = df.apply(pd.to_numeric, errors='coerce')
             df_numeric.dropna(axis=1, how='all', inplace=True)
             
+            # 2. Replicate Handling Logic
             if replicate_handling == "Median":
                 df_numeric = df_numeric.groupby(level=0).median()
                 
@@ -144,7 +139,7 @@ def main():
                             vals = group[col].dropna()
                             if len(vals) >= 3:
                                 cv = vals.std(ddof=1) / vals.mean() if vals.mean() != 0 else 0
-                                if abs(cv) > (outlier_filter / 100):
+                                if abs(cv) > outlier_filter / 100: 
                                     vals_reset = vals.reset_index(drop=True)
                                     med = vals_reset.median()
                                     outlier_idx = (vals_reset - med).abs().idxmax()
@@ -164,7 +159,7 @@ def main():
                 
                 if outlier_logs:
                     with st.expander(f"⚠️ Outliers filtered in {len(outlier_logs)} measurements"):
-                        st.markdown(f"The following technical replicates exceeded a {outlier_filter}% Coefficient of Variation. The outlier was dropped before calculating the mean.")
+                        st.markdown("The following technical replicates exceeded a 15% Coefficient of Variation. The outlier was dropped before calculating the mean.")
                         for log in outlier_logs:
                             st.markdown(f"- {log}")
                     with st.expander(f"📃 Final DataFrame after Outlier Filtering"):
@@ -172,52 +167,44 @@ def main():
             
             available_cols = df_numeric.columns.tolist()
             
-            # 2. Dynamic Column Categorization
+            # 3. Dynamic Column Categorization
             st.markdown("### Categorize Columns")
             
-            expected_y = [
+            expected_bacteria = [
                 'Bifidobacterium', 'Lactobacillus', 'Faecalibacterium', 
                 'Enterobacterium', 'Enterococcus', 'Bacteroidetes', 
                 'C leptum', 'C coccoides', 'Prevotella'
             ]
-            expected_x = [
+            expected_metabolites = [
                 'Total SCFA', 'Acetic acid', 'Butyric acid', 
                 'Propionic acid', 'Valeric acid'
             ]
             
-            default_y = [col for col in expected_y if col in available_cols]
-            default_x = [col for col in expected_x if col in available_cols]
+            default_y = [col for col in expected_bacteria if col in available_cols]
+            default_x = [col for col in expected_metabolites if col in available_cols]
             
             col1, col2 = st.columns(2)
             with col1:
-                y_axis_cols = st.multiselect(
-                    f"Y-Axis (Rows): {y_axis_label}", 
-                    options=available_cols, 
-                    default=default_y
-                )
+                y_axis_cols = st.multiselect("Y-Axis (Rows)", options=available_cols, default=default_y)
             with col2:
-                x_axis_cols = st.multiselect(
-                    f"X-Axis (Columns): {x_axis_label}", 
-                    options=available_cols, 
-                    default=default_x
-                )
+                x_axis_cols = st.multiselect("X-Axis (Columns)", options=available_cols, default=default_x)
             
             swap_axes = st.toggle("🔄 Swap X and Y Axes")
             
             st.markdown("---")
             
-            # 3. Mathematical Processing
+            # 4. Mathematical Processing
             corr_matrix = df_numeric.corr(method=corr_method)
             pval_matrix = calculate_pvalues(df_numeric, method=corr_method)
             
-            # 4. Tabbed Interface
+            # 5. Tabbed Interface
             tab1, tab2 = st.tabs(["Targeted Correlation", "Full Correlation Matrix"])
             
             with tab1:
                 if not y_axis_cols or not x_axis_cols:
                     st.warning("Please select at least one column for both the X and Y axes.")
                 else:
-                    st.subheader(f"Targeted Heatmap - {corr_method.capitalize()} Correlation")
+                    st.subheader("Targeted Heatmap")
                     
                     if swap_axes:
                         sub_corr = corr_matrix.loc[x_axis_cols, y_axis_cols]
@@ -225,8 +212,9 @@ def main():
                     else:
                         sub_corr = corr_matrix.loc[y_axis_cols, x_axis_cols]
                         sub_pval = pval_matrix.loc[y_axis_cols, x_axis_cols]
-                    
-                    annot_matrix1 = np.empty_like(sub_corr, dtype=object)
+                        
+                    # FIXED: Explicit shape definition to prevent transposed memory bugs
+                    annot_matrix1 = np.empty(sub_corr.shape, dtype=object)
                     
                     if sig_metric == "Correlation Coefficient (|r|)":
                         sig_mask1 = np.abs(sub_corr) < sig_threshold
@@ -264,23 +252,15 @@ def main():
                     ax1.set_title(custom_title, pad=20, fontsize=16)
                     
                     sns.heatmap(
-                        sub_corr, 
-                        cmap=cmap_selection, 
-                        vmin=-1.0,
-                        vmax=1.0,
-                        annot=annot_matrix1, 
-                        mask=final_mask1,
-                        fmt="", 
-                        linewidths=.5, 
-                        cbar_kws={"shrink": .8}, 
-                        ax=ax1, 
-                        annot_kws={"size": annot_font_size}
+                        sub_corr, mask=final_mask1, cmap=cmap_selection, vmin=-1.0, vmax=1.0,  
+                        annot=annot_matrix1, fmt="", linewidths=.5, 
+                        cbar_kws={"shrink": .8}, ax=ax1, annot_kws={"size": annot_font_size}
                     )
+                    
                     if x_axis_label:
                         ax1.set_xlabel(x_axis_label, fontsize=12, labelpad=10)
                     else:
                         ax1.set_xlabel('')
-
                     if y_axis_label:
                         ax1.set_ylabel(y_axis_label, fontsize=12, labelpad=10)
                     else:
@@ -290,21 +270,21 @@ def main():
                     plt.yticks(rotation=0)
                     st.pyplot(fig1)
                     
-                    # Export for Targeted Matrix
                     img_buffer1 = io.BytesIO()
                     fig1.savefig(img_buffer1, format="png", bbox_inches="tight", dpi=300)
-                    
-                    c1, c2 = st.columns(2)
-                    c1.download_button("Download Targeted Heatmap (PNG)", data=img_buffer1.getvalue(), file_name="targeted_heatmap.png", mime="image/png")
-                    c2.download_button(f"Download Targeted Data ({corr_method.capitalize()})", data=sub_corr.to_csv().encode('utf-8'), file_name=f"targeted_correlations_{corr_method}.csv", mime="text/csv")
+                    c1, c2, c3 = st.columns(3)
+                    c1.download_button("Download Heatmap (PNG)", data=img_buffer1.getvalue(), file_name="targeted_heatmap.png", mime="image/png")
+                    c2.download_button(f"Download Correlations (CSV)", data=sub_corr.to_csv().encode('utf-8'), file_name=f"targeted_correlations_{corr_method}.csv", mime="text/csv")
+                    c3.download_button(f"Download P-Values (CSV)", data=sub_pval.to_csv().encode('utf-8'), file_name=f"targeted_pvalues_{corr_method}.csv", mime="text/csv")
             
             with tab2:
-                st.subheader(f"Full Matrix Heatmap - {corr_method.capitalize()} Correlation")
+                st.subheader("Full Matrix Heatmap")
                 
                 full_corr_display = corr_matrix.T if swap_axes else corr_matrix
                 full_pval_display = pval_matrix.T if swap_axes else pval_matrix
-
-                annot_matrix2 = np.empty_like(full_corr_display, dtype=object)
+                
+                # FIXED: Explicit shape definition to prevent transposed memory bugs
+                annot_matrix2 = np.empty(full_corr_display.shape, dtype=object)
                 
                 if sig_metric == "Correlation Coefficient (|r|)":
                     sig_mask2 = np.abs(full_corr_display) < sig_threshold
@@ -318,9 +298,9 @@ def main():
                         
                         if sig_action == "Highlight Significant (*)":
                             if sig_metric == "Correlation Coefficient (|r|)":
-                                annot_matrix1[i, j] = f"{base_text}*" if abs(val) >= sig_threshold else base_text
+                                annot_matrix2[i, j] = f"{base_text}*" if abs(val) >= sig_threshold else base_text
                             else:
-                                p_val = sub_pval.iloc[i, j]
+                                p_val = full_pval_display.iloc[i, j]
                                 if pd.notna(p_val):
                                     if p_val <= p_3star:
                                         stars = "***"
@@ -330,17 +310,19 @@ def main():
                                         stars = "*"
                                     else:
                                         stars = ""
-                                    annot_matrix1[i, j] = f"{base_text}{stars}"
+                                    annot_matrix2[i, j] = f"{base_text}{stars}"
                                 else:
-                                    annot_matrix1[i, j] = base_text
+                                    annot_matrix2[i, j] = base_text
                         else:
-                            annot_matrix1[i, j] = base_text
+                            annot_matrix2[i, j] = base_text
                 
                 structural_mask = None
                 if mask_option == "Hide Upper Triangle":
-                    structural_mask = np.triu(np.ones_like(full_corr_display, dtype=bool))
+                    # FIXED: Explicit shape generation
+                    structural_mask = np.triu(np.ones(full_corr_display.shape, dtype=bool))
                 elif mask_option == "Hide Lower Triangle":
-                    structural_mask = np.tril(np.ones_like(full_corr_display, dtype=bool))
+                    # FIXED: Explicit shape generation
+                    structural_mask = np.tril(np.ones(full_corr_display.shape, dtype=bool))
                 
                 if sig_action == "Mask Insignificant Cells":
                     final_mask2 = structural_mask | sig_mask2 if structural_mask is not None else sig_mask2
@@ -351,40 +333,31 @@ def main():
                 ax2.set_title(custom_title, pad=20, fontsize=16)
                 
                 sns.heatmap(
-                    full_corr_display, 
-                    mask=final_mask2,
-                    cmap=cmap_selection, 
-                    vmin=-1.0,
-                    vmax=1.0,
-                    annot=annot_matrix2, 
-                    fmt="", 
-                    linewidths=.5, 
-                    cbar_kws={"shrink": .8}, 
-                    ax=ax2, 
-                    annot_kws={"size": annot_font_size}
+                    full_corr_display, mask=final_mask2, cmap=cmap_selection, vmin=-1.0, vmax=1.0,  
+                    annot=annot_matrix2, fmt="", linewidths=.5, 
+                    cbar_kws={"shrink": .8}, ax=ax2, annot_kws={"size": annot_font_size}
                 )
-
+                
                 if x_axis_label:
                     ax2.set_xlabel(x_axis_label, fontsize=12, labelpad=10)
                 else:
                     ax2.set_xlabel('')
-
+                    
                 if y_axis_label:
                     ax2.set_ylabel(y_axis_label, fontsize=12, labelpad=10)
                 else:
                     ax2.set_ylabel('')
-
+                
                 plt.xticks(rotation=45, ha='right')
                 plt.yticks(rotation=0)
                 st.pyplot(fig2)
                 
-                # Export for Full Matrix
                 img_buffer2 = io.BytesIO()
                 fig2.savefig(img_buffer2, format="png", bbox_inches="tight", dpi=300)
-                
-                c3, c4 = st.columns(2)
-                c3.download_button("Download Full Heatmap (PNG)", data=img_buffer2.getvalue(), file_name="full_heatmap.png", mime="image/png")
-                c4.download_button(f"Download Full Matrix Data ({corr_method.capitalize()})", data=full_corr_display.to_csv().encode('utf-8'), file_name=f"full_correlations_{corr_method}.csv", mime="text/csv")
+                c1, c2, c3 = st.columns(3)
+                c1.download_button("Download Heatmap (PNG)", data=img_buffer2.getvalue(), file_name="full_heatmap.png", mime="image/png")
+                c2.download_button(f"Download Correlations (CSV)", data=full_corr_display.to_csv().encode('utf-8'), file_name=f"full_correlations_{corr_method}.csv", mime="text/csv")
+                c3.download_button(f"Download P-Values (CSV)", data=full_pval_display.to_csv().encode('utf-8'), file_name=f"full_pvalues_{corr_method}.csv", mime="text/csv")
 
         except Exception as e:
             st.error(f"An error occurred while processing the file: {e}")
