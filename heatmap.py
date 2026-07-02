@@ -2,7 +2,41 @@ import streamlit as st
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+import numpy as np
+import scipy.stats as stats
 import io
+
+def calculate_pvalues(df, method='pearson'):
+    """Helper function to calculate a p-value matrix for a dataframe."""
+    cols = df.columns
+    pvals = pd.DataFrame(index=cols, columns=cols, dtype=float)
+    
+    for r in cols:
+        for c in cols:
+            if r == c:
+                pvals.loc[r, c] = 0.0 
+                continue
+                
+            # Drop NaNs for the specific pair
+            mask = df[r].notna() & df[c].notna()
+            x, y = df[r][mask], df[c][mask]
+            
+            if len(x) < 2:
+                pvals.loc[r, c] = np.nan
+                continue
+                
+            try:
+                if method == 'pearson':
+                    _, p = stats.pearsonr(x, y)
+                elif method == 'spearman':
+                    _, p = stats.spearmanr(x, y)
+                elif method == 'kendall':
+                    _, p = stats.kendalltau(x, y)
+                pvals.loc[r, c] = p
+            except:
+                pvals.loc[r, c] = np.nan
+                
+    return pvals
 
 def main():
     st.set_page_config(page_title="Correlation Heatmap Generator", layout="wide")
@@ -38,10 +72,18 @@ def main():
                 step=1
             )
     
+    mask_option = st.sidebar.selectbox(
+        "Matrix Masking (Full Matrix Only)",
+        options=["None", "Hide Upper Triangle", "Hide Lower Triangle"],
+        index=0
+    )
+    st.sidebar.markdown("---")
+
     custom_title = st.sidebar.text_input("Heatmap Title", value="Correlation Heatmap")
     y_axis_label = st.sidebar.text_input("Y-Axis Label", value="Bacteria")
     x_axis_label = st.sidebar.text_input("X-Axis Label", value="Metabolites")
-    
+    st.sidebar.markdown("---")
+
     cmap_selection = st.sidebar.selectbox(
         "Color Palette", 
         options=["vlag", "coolwarm", "Spectral", "icefire", "RdYlBu_r"],
@@ -52,7 +94,24 @@ def main():
     fig_height = st.sidebar.slider("Figure Height", min_value=6, max_value=24, value=10)
     
     show_values = st.sidebar.toggle("Show Values inside Heatmap", value=True)
+
+    st.sidebar.markdown("### Significance Filtering")
+
+    sig_metric = st.sidebar.radio(
+        "Threshold Metric",
+        options=["Correlation Coefficient (|r|)", "P-value"]
+    )
     
+    if sig_metric == "Correlation Coefficient (|r|)":
+        sig_threshold = st.sidebar.slider("Threshold (|r| ≥)", min_value=0.0, max_value=1.0, value=0.5, step=0.05)
+    else:
+        sig_threshold = st.sidebar.slider("Threshold (α ≤)", min_value=0.01, max_value=0.10, value=0.05, step=0.01)
+    
+    sig_action = st.sidebar.radio(
+        "Threshold Action", 
+        options=["Highlight Significant (*)", "Mask Insignificant Cells"]
+    )
+
     annot_font_size = st.sidebar.slider("Annotation Font Size", min_value=4, max_value=16, value=9)
 
     # Main Area
@@ -105,7 +164,7 @@ def main():
                         st.markdown(f"The following technical replicates exceeded a {outlier_filter}% Coefficient of Variation. The outlier was dropped before calculating the mean.")
                         for log in outlier_logs:
                             st.markdown(f"- {log}")
-                    
+                    with st.expander(f"📃 Final DataFrame after Outlier Filtering"):
                         st.table(df_numeric)
             
             available_cols = df_numeric.columns.tolist()
@@ -146,6 +205,7 @@ def main():
             
             # 3. Mathematical Processing
             corr_matrix = df_numeric.corr(method=corr_method)
+            pval_matrix = calculate_pvalues(df_numeric, method=corr_method)
             
             # 4. Tabbed Interface
             tab1, tab2 = st.tabs(["Targeted Correlation", "Full Correlation Matrix"])
@@ -158,8 +218,35 @@ def main():
                     
                     if swap_axes:
                         sub_corr = corr_matrix.loc[x_axis_cols, y_axis_cols]
+                        sub_pval = pval_matrix.loc[x_axis_cols, y_axis_cols]
                     else:
                         sub_corr = corr_matrix.loc[y_axis_cols, x_axis_cols]
+                        sub_pval = pval_matrix.loc[y_axis_cols, x_axis_cols]
+                    
+                    annot_matrix1 = np.empty_like(sub_corr, dtype=object)
+                    
+                    if sig_metric == "Correlation Coefficient (|r|)":
+                        sig_mask1 = np.abs(sub_corr) < sig_threshold
+                    else:
+                        sig_mask1 = (sub_pval > sig_threshold) | sub_pval.isna()
+                    
+                    for i in range(sub_corr.shape[0]):
+                        for j in range(sub_corr.shape[1]):
+                            val = sub_corr.iloc[i, j]
+                            base_text = f"{val:.2f}" if show_values else ""
+                            
+                            if sig_metric == "Correlation Coefficient (|r|)":
+                                is_sig = abs(val) >= sig_threshold
+                            else:
+                                p_val = sub_pval.iloc[i, j]
+                                is_sig = pd.notna(p_val) and p_val <= sig_threshold
+                            
+                            if sig_action == "Highlight Significant (*)":
+                                annot_matrix1[i, j] = f"{base_text}*" if is_sig else base_text
+                            else:
+                                annot_matrix1[i, j] = base_text
+                                
+                    final_mask1 = sig_mask1 if sig_action == "Mask Insignificant Cells" else None
                     
                     fig1, ax1 = plt.subplots(figsize=(fig_width, fig_height))
                     ax1.set_title(custom_title, pad=20, fontsize=16)
@@ -169,8 +256,9 @@ def main():
                         cmap=cmap_selection, 
                         vmin=-1.0,
                         vmax=1.0,
-                        annot=show_values, 
-                        fmt=".2f", 
+                        annot=annot_matrix1, 
+                        mask=final_mask1,
+                        fmt="", 
                         linewidths=.5, 
                         cbar_kws={"shrink": .8}, 
                         ax=ax1, 
@@ -202,17 +290,54 @@ def main():
                 st.subheader(f"Full Matrix Heatmap - {corr_method.capitalize()} Correlation")
                 
                 full_corr_display = corr_matrix.T if swap_axes else corr_matrix
+                full_pval_display = pval_matrix.T if swap_axes else pval_matrix
+
+                annot_matrix2 = np.empty_like(full_corr_display, dtype=object)
+                
+                # NEW: Dynamic masking based on selected metric
+                if sig_metric == "Correlation Coefficient (|r|)":
+                    sig_mask2 = np.abs(full_corr_display) < sig_threshold
+                else:
+                    sig_mask2 = (full_pval_display > sig_threshold) | full_pval_display.isna()
+                
+                for i in range(full_corr_display.shape[0]):
+                    for j in range(full_corr_display.shape[1]):
+                        val = full_corr_display.iloc[i, j]
+                        base_text = f"{val:.2f}" if show_values else ""
+                        
+                        if sig_metric == "Correlation Coefficient (|r|)":
+                            is_sig = abs(val) >= sig_threshold
+                        else:
+                            p_val = full_pval_display.iloc[i, j]
+                            is_sig = pd.notna(p_val) and p_val <= sig_threshold
+                        
+                        if sig_action == "Highlight Significant (*)":
+                            annot_matrix2[i, j] = f"{base_text}*" if is_sig else base_text
+                        else:
+                            annot_matrix2[i, j] = base_text
+                
+                structural_mask = None
+                if mask_option == "Hide Upper Triangle":
+                    structural_mask = np.triu(np.ones_like(full_corr_display, dtype=bool))
+                elif mask_option == "Hide Lower Triangle":
+                    structural_mask = np.tril(np.ones_like(full_corr_display, dtype=bool))
+                
+                if sig_action == "Mask Insignificant Cells":
+                    final_mask2 = structural_mask | sig_mask2 if structural_mask is not None else sig_mask2
+                else:
+                    final_mask2 = structural_mask
                 
                 fig2, ax2 = plt.subplots(figsize=(fig_width, fig_height))
                 ax2.set_title(custom_title, pad=20, fontsize=16)
                 
                 sns.heatmap(
                     full_corr_display, 
+                    mask=final_mask2,
                     cmap=cmap_selection, 
                     vmin=-1.0,
                     vmax=1.0,
-                    annot=show_values, 
-                    fmt=".2f", 
+                    annot=annot_matrix2, 
+                    fmt="", 
                     linewidths=.5, 
                     cbar_kws={"shrink": .8}, 
                     ax=ax2, 
