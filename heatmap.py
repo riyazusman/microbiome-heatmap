@@ -7,7 +7,6 @@ import scipy.stats as stats
 import io
 
 def calculate_pvalues(df, method='pearson'):
-    """Helper function to calculate a p-value matrix for a dataframe."""
     cols = df.columns
     pvals = pd.DataFrame(index=cols, columns=cols, dtype=float)
     
@@ -45,7 +44,7 @@ def main():
     st.markdown("Upload your raw data CSV to dynamically categorize and analyze correlations.")
 
     # Sidebar Controls
-    st.sidebar.header("Visualization Controls")
+    st.sidebar.header("Heatmap Controls")
     
     # Correlation Method Selector
     corr_method = st.sidebar.selectbox(
@@ -99,13 +98,17 @@ def main():
 
     sig_metric = st.sidebar.radio(
         "Threshold Metric",
-        options=["Correlation Coefficient (|r|)", "P-value"]
+        options=["P-value (α)", "Correlation Coefficient (|r|)"]
     )
     
     if sig_metric == "Correlation Coefficient (|r|)":
         sig_threshold = st.sidebar.slider("Threshold (|r| ≥)", min_value=0.0, max_value=1.0, value=0.5, step=0.05)
     else:
-        sig_threshold = st.sidebar.slider("Threshold (α ≤)", min_value=0.01, max_value=0.10, value=0.05, step=0.01)
+        st.sidebar.markdown("**P-Value Tiers (α ≤)**")
+        p_star = st.sidebar.number_input("'*' Threshold", value=0.10, step=0.01)
+        p_2star = st.sidebar.number_input("'**' Threshold", value=0.05, step=0.01)
+        p_3star = st.sidebar.number_input("'***' Threshold", value=0.001, step=0.001, format="%.3f")
+        sig_threshold = p_star
     
     sig_action = st.sidebar.radio(
         "Threshold Action", 
@@ -235,14 +238,23 @@ def main():
                             val = sub_corr.iloc[i, j]
                             base_text = f"{val:.2f}" if show_values else ""
                             
-                            if sig_metric == "Correlation Coefficient (|r|)":
-                                is_sig = abs(val) >= sig_threshold
-                            else:
-                                p_val = sub_pval.iloc[i, j]
-                                is_sig = pd.notna(p_val) and p_val <= sig_threshold
-                            
                             if sig_action == "Highlight Significant (*)":
-                                annot_matrix1[i, j] = f"{base_text}*" if is_sig else base_text
+                                if sig_metric == "Correlation Coefficient (|r|)":
+                                    annot_matrix1[i, j] = f"{base_text}*" if abs(val) >= sig_threshold else base_text
+                                else:
+                                    p_val = sub_pval.iloc[i, j]
+                                    if pd.notna(p_val):
+                                        if p_val <= p_3star:
+                                            stars = "***"
+                                        elif p_val <= p_2star:
+                                            stars = "**"
+                                        elif p_val <= p_star:
+                                            stars = "*"
+                                        else:
+                                            stars = ""
+                                        annot_matrix1[i, j] = f"{base_text}{stars}"
+                                    else:
+                                        annot_matrix1[i, j] = base_text
                             else:
                                 annot_matrix1[i, j] = base_text
                                 
@@ -294,7 +306,6 @@ def main():
 
                 annot_matrix2 = np.empty_like(full_corr_display, dtype=object)
                 
-                # NEW: Dynamic masking based on selected metric
                 if sig_metric == "Correlation Coefficient (|r|)":
                     sig_mask2 = np.abs(full_corr_display) < sig_threshold
                 else:
@@ -305,16 +316,25 @@ def main():
                         val = full_corr_display.iloc[i, j]
                         base_text = f"{val:.2f}" if show_values else ""
                         
-                        if sig_metric == "Correlation Coefficient (|r|)":
-                            is_sig = abs(val) >= sig_threshold
-                        else:
-                            p_val = full_pval_display.iloc[i, j]
-                            is_sig = pd.notna(p_val) and p_val <= sig_threshold
-                        
                         if sig_action == "Highlight Significant (*)":
-                            annot_matrix2[i, j] = f"{base_text}*" if is_sig else base_text
+                            if sig_metric == "Correlation Coefficient (|r|)":
+                                annot_matrix1[i, j] = f"{base_text}*" if abs(val) >= sig_threshold else base_text
+                            else:
+                                p_val = sub_pval.iloc[i, j]
+                                if pd.notna(p_val):
+                                    if p_val <= p_3star:
+                                        stars = "***"
+                                    elif p_val <= p_2star:
+                                        stars = "**"
+                                    elif p_val <= p_star:
+                                        stars = "*"
+                                    else:
+                                        stars = ""
+                                    annot_matrix1[i, j] = f"{base_text}{stars}"
+                                else:
+                                    annot_matrix1[i, j] = base_text
                         else:
-                            annot_matrix2[i, j] = base_text
+                            annot_matrix1[i, j] = base_text
                 
                 structural_mask = None
                 if mask_option == "Hide Upper Triangle":
