@@ -89,7 +89,9 @@ def main():
             "Matrix Masking for Full Matrix",
             options=["None", "Hide Upper Triangle", "Hide Lower Triangle"],
             index=0
-        )    
+        )
+        swap_axes = st.toggle("🔄 Swap X and Y Axes")
+
 
     with st.sidebar.expander("Significance Filtering"):
         sig_metric = st.radio(
@@ -185,12 +187,10 @@ def main():
             
             col1, col2 = st.columns(2)
             with col1:
-                y_axis_cols = st.multiselect("Y-Axis (Rows)", options=available_cols, default=default_y)
+                y_axis_cols = st.multiselect(f"Y-Axis (Rows) - {y_axis_label}", options=available_cols, default=default_y)
             with col2:
-                x_axis_cols = st.multiselect("X-Axis (Columns)", options=available_cols, default=default_x)
-            
-            swap_axes = st.toggle("🔄 Swap X and Y Axes")
-            
+                x_axis_cols = st.multiselect(f"X-Axis (Columns) - {x_axis_label}", options=available_cols, default=default_x)
+                        
             st.markdown("---")
             
             # 4. Mathematical Processing
@@ -207,13 +207,13 @@ def main():
                     st.subheader("Targeted Heatmap")
                     
                     if swap_axes:
+                        x_axis_label, y_axis_label = y_axis_label, x_axis_label
                         sub_corr = corr_matrix.loc[x_axis_cols, y_axis_cols]
                         sub_pval = pval_matrix.loc[x_axis_cols, y_axis_cols]
                     else:
                         sub_corr = corr_matrix.loc[y_axis_cols, x_axis_cols]
                         sub_pval = pval_matrix.loc[y_axis_cols, x_axis_cols]
                         
-                    # FIXED: Explicit shape definition to prevent transposed memory bugs
                     annot_matrix1 = np.empty(sub_corr.shape, dtype=object)
                     
                     if sig_metric == "Correlation Coefficient (|r|)":
@@ -280,10 +280,14 @@ def main():
             with tab2:
                 st.subheader("Full Matrix Heatmap")
                 
-                full_corr_display = corr_matrix.T if swap_axes else corr_matrix
-                full_pval_display = pval_matrix.T if swap_axes else pval_matrix
+                if swap_axes:
+                    x_axis_label, y_axis_label = y_axis_label, x_axis_label
+                    full_corr_display = corr_matrix.T
+                    full_pval_display = pval_matrix.T
+                else:
+                    full_corr_display = corr_matrix
+                    full_pval_display = pval_matrix
                 
-                # FIXED: Explicit shape definition to prevent transposed memory bugs
                 annot_matrix2 = np.empty(full_corr_display.shape, dtype=object)
                 
                 if sig_metric == "Correlation Coefficient (|r|)":
